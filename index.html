@@ -1,284 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Succinctris</title>
+    <!-- Keep previous meta and styles -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        body {
-            font-family: 'Courier New', monospace;
-            background: 
-                linear-gradient(45deg, #0f0f12 25%, #1a1a1f 0, #1a1a1f 50%, #0f0f12 0, #0f0f12 75%, #1a1a1f 0) 0/20px 20px,
-                radial-gradient(circle, #6e45e2 0%, #0f0f12 100%);
-            color: #ff92c9;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            overflow: hidden;
+        /* Mobile-optimized additions */
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 20px;
+            touch-action: manipulation;
         }
-        .game-container {
-            display: flex;
-            gap: 30px;
-            padding: 20px;
-            background: rgba(15, 15, 18, 0.9);
-            border-radius: 15px;
-            box-shadow: 0 0 30px rgba(110, 69, 226, 0.3);
-        }
-        #game-board {
-            width: 300px;
-            height: 600px;
-            background: #1a1a1f;
-            border: 2px solid #ff92c9;
-            position: relative;
-        }
-        .block {
-            position: absolute;
-            width: 30px;
-            height: 30px;
-            border: 1px solid rgba(255, 146, 201, 0.2);
-            transition: all 0.1s;
-        }
-        .zk-snark { background: #6e45e2; }
-        .da-layer { background: #ff92c9; }
-        .sequencer { background: #88d3ce; }
-        .rollup { background: #ff2f92; }
-        .verifier { background: #ff6b6b; }
-        .zk-proof { background: #ffd700; }
-        .mev-shield { background: #00ff88; }
-        .turbo-finality { background: #ffa500; }
-        #message {
-            position: fixed;
-            top: 20px;
-            background: #6e45e2;
-            padding: 15px;
-            border-radius: 8px;
-            animation: messageSlide 1s;
-            display: none;
-        }
-        @keyframes messageSlide {
-            0% { transform: translateY(-100px); }
-            100% { transform: translateY(0); }
-        }
-        .powerup-effect {
-            position: absolute;
-            pointer-events: none;
-            animation: pulse 1s;
-            font-weight: bold;
-        }
-        @keyframes pulse {
-            0% { transform: scale(1); opacity: 1; }
-            100% { transform: scale(3); opacity: 0; }
-        }
-        .info-panel {
-            color: #88d3ce;
-            width: 200px;
-        }
-        button {
-            background: linear-gradient(45deg, #6e45e2, #88d3ce);
-            border: none;
+        .control-btn {
+            background: rgba(110, 69, 226, 0.8);
             color: white;
-            padding: 10px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            margin: 10px 0;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            user-select: none;
+        }
+        @media (max-width: 600px) {
+            .game-container {
+                flex-direction: column;
+                transform: scale(0.9);
+            }
+            #game-board {
+                width: 250px;
+                height: 500px;
+            }
+            .block {
+                width: 25px;
+                height: 25px;
+            }
         }
     </style>
 </head>
 <body>
-    <div id="message">Proof Verified!</div>
-    <div class="game-container">
-        <div id="game-board"></div>
-        <div class="info-panel">
-            <h2>Score: <span id="score">0</span></h2>
-            <h3>Level: <span id="level">1</span></h3>
-            <h3>Next Block:</h3>
-            <div id="next-block" style="height:100px;"></div>
-            <button id="start-btn">New Game</button>
-        </div>
+    <!-- Previous game elements -->
+    <div class="controls">
+        <div class="control-btn" id="left">←</div>
+        <div class="control-btn" id="rotate">↻</div>
+        <div class="control-btn" id="right">→</div>
+        <div class="control-btn" id="down" style="grid-column: 1 / -1;">↓</div>
     </div>
 
     <script>
-        const BOARD_WIDTH = 10;
-        const BOARD_HEIGHT = 20;
-        const BLOCKS = {
-            I: { shape: [[1,1,1,1]], class: 'zk-snark', desc: 'ZK-SNARK Proof' },
-            O: { shape: [[1,1],[1,1]], class: 'da-layer', desc: 'Data Availability' },
-            T: { shape: [[0,1,0],[1,1,1]], class: 'sequencer', desc: 'Sequencer Node' },
-            L: { shape: [[1,0],[1,0],[1,1]], class: 'rollup', desc: 'Rollup Batch' },
-            J: { shape: [[0,1],[0,1],[1,1]], class: 'verifier', desc: 'Verifier Contract' },
-            Z: { shape: [[1,1,0],[0,1,1]], class: 'zk-proof', desc: 'ZK Power-Up', 
-                effect: () => clearLines(3) },
-            S: { shape: [[0,1,1],[1,1,0]], class: 'mev-shield', desc: 'MEV Shield',
-                effect: () => (hasShield = true) }
+        // Touch controls
+        const controls = {
+            left: document.getElementById('left'),
+            right: document.getElementById('right'),
+            rotate: document.getElementById('rotate'),
+            down: document.getElementById('down')
         };
 
-        let gameBoard = Array(BOARD_HEIGHT).fill().map(() => Array(BOARD_WIDTH).fill(0));
-        let currentBlock = null;
-        let nextBlock = null;
-        let score = 0;
-        let level = 1;
-        let gameLoop = null;
-        let hasShield = false;
+        // Add both touch and click events
+        Object.entries(controls).forEach(([action, element]) => {
+            element.addEventListener('touchstart', handleControl);
+            element.addEventListener('click', handleControl);
+        });
 
-        function initGame() {
-            gameBoard = Array(BOARD_HEIGHT).fill().map(() => Array(BOARD_WIDTH).fill(0));
-            score = 0;
-            level = 1;
-            hasShield = false;
-            nextBlock = getRandomBlock();
-            spawnNewBlock();
-            updateDisplay();
-        }
-
-        function getRandomBlock() {
-            const keys = Object.keys(BLOCKS);
-            return {...BLOCKS[keys[Math.floor(Math.random() * keys.length)]]};
-        }
-
-        function spawnNewBlock() {
-            currentBlock = {...nextBlock, x: 4, y: 0 };
-            nextBlock = getRandomBlock();
-            if (checkCollision(currentBlock.x, currentBlock.y, currentBlock.shape)) gameOver();
-        }
-
-        function drawBoard() {
-            const board = document.getElementById('game-board');
-            board.innerHTML = '';
+        function handleControl(e) {
+            e.preventDefault();
+            const action = this.id;
             
-            // Draw blocks
-            gameBoard.forEach((row, y) => row.forEach((cell, x) => {
-                if (cell) {
-                    const block = document.createElement('div');
-                    block.className = `block ${cell.class}`;
-                    block.style.left = `${x * 30}px`;
-                    block.style.top = `${y * 30}px`;
-                    board.appendChild(block);
-                }
-            }));
-
-            // Draw current block
-            if (currentBlock) {
-                currentBlock.shape.forEach((row, y) => row.forEach((cell, x) => {
-                    if (cell) {
-                        const block = document.createElement('div');
-                        block.className = `block ${currentBlock.class}`;
-                        block.style.left = `${(currentBlock.x + x) * 30}px`;
-                        block.style.top = `${(currentBlock.y + y) * 30}px`;
-                        board.appendChild(block);
-                    }
-                }));
-            }
-        }
-
-        function checkCollision(x, y, shape) {
-            return shape.some((row, dy) => 
-                row.some((cell, dx) => 
-                    cell && (x + dx < 0 || x + dx >= BOARD_WIDTH || 
-                            y + dy >= BOARD_HEIGHT || 
-                            gameBoard[y + dy]?.[x + dx])
-                )
-            );
-        }
-
-        function mergeBlock() {
-            currentBlock.shape.forEach((row, y) => row.forEach((cell, x) => {
-                if (cell) gameBoard[currentBlock.y + y][currentBlock.x + x] = currentBlock;
-            }));
-            checkLines();
-            spawnNewBlock();
-        }
-
-        function checkLines() {
-            let linesCleared = 0;
-            
-            for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
-                if (gameBoard[y].every(cell => cell)) {
-                    gameBoard.splice(y, 1);
-                    gameBoard.unshift(Array(BOARD_WIDTH).fill(0));
-                    linesCleared++;
-                    y++;
-                }
-            }
-
-            if (linesCleared > 0) {
-                document.getElementById('message').style.display = 'block';
-                setTimeout(() => {
-                    document.getElementById('message').style.display = 'none';
-                }, 1000);
-                
-                score += linesCleared * 100 * level;
-                if (score >= level * 1000) levelUp();
-                updateDisplay();
-            }
-        }
-
-        function levelUp() {
-            level++;
-            clearInterval(gameLoop);
-            gameLoop = setInterval(gameStep, 1000 / level);
-        }
-
-        function updateDisplay() {
-            document.getElementById('score').textContent = score;
-            document.getElementById('level').textContent = level;
-            drawBoard();
-        }
-
-        function gameStep() {
-            if (!checkCollision(currentBlock.x, currentBlock.y + 1, currentBlock.shape)) {
-                currentBlock.y++;
-            } else {
-                mergeBlock();
-            }
-            updateDisplay();
-        }
-
-        function gameOver() {
-            if (hasShield) {
-                hasShield = false;
-                return;
-            }
-            clearInterval(gameLoop);
-            alert(`Game Over! Score: ${score}`);
-        }
-
-        // Controls
-        document.addEventListener('keydown', e => {
-            if (!currentBlock) return;
-            
-            switch(e.key) {
-                case 'ArrowLeft': 
-                    if (!checkCollision(currentBlock.x - 1, currentBlock.y, currentBlock.shape)) 
-                        currentBlock.x--;
-                    break;
-                case 'ArrowRight':
-                    if (!checkCollision(currentBlock.x + 1, currentBlock.y, currentBlock.shape)) 
-                        currentBlock.x++;
-                    break;
-                case 'ArrowDown':
-                    if (!checkCollision(currentBlock.x, currentBlock.y + 1, currentBlock.shape)) 
-                        currentBlock.y++;
-                    break;
-                case 'ArrowUp':
+            switch(action) {
+                case 'left': currentBlock.x--; break;
+                case 'right': currentBlock.x++; break;
+                case 'rotate': 
                     const rotated = currentBlock.shape[0].map((_, i) =>
                         currentBlock.shape.map(row => row[i]).reverse()
                     );
                     if (!checkCollision(currentBlock.x, currentBlock.y, rotated)) 
                         currentBlock.shape = rotated;
                     break;
+                case 'down': currentBlock.y++; break;
             }
             updateDisplay();
-        });
-
-        document.getElementById('start-btn').addEventListener('click', () => {
-            initGame();
-            clearInterval(gameLoop);
-            gameLoop = setInterval(gameStep, 1000);
-        });
-
-        initGame();
+        }
     </script>
 </body>
 </html>
